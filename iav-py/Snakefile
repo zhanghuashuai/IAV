@@ -1,0 +1,351 @@
+# ============================================================
+# iav-py 主流程
+#
+# 核心流程（默认 targets）：
+#   QC -> consensus -> Nextclade 分型 -> 功能标记 -> 报告
+#
+# 可选模块（单独指定 target）：
+#   results/phylo/HA.treefile
+#   results/phylo/HA.timetree.nwk
+#   results/phylo/HA.codon.trim.fasta
+#   results/selection/HA.selection.tsv
+#   results/reassortment/rf_matrix.tsv
+#   figures/HA_tree.png
+#   results/deseq2/deseq2_results.tsv
+#   results/enrich/enrichment.tsv
+# ============================================================
+
+configfile: "config/config.yaml"
+
+SAMPLES = list(config["samples"].keys())
+SEGMENTS = config["reference"]["segments"]
+PHYLO_SEG = config["phylogeny"]["segment"]
+
+
+rule all:
+    input:
+        expand("results/qc/{sample}.json", sample=SAMPLES),
+        expand("results/nextclade/{sample}.tsv", sample=SAMPLES),
+        expand("results/markers/{sample}.tsv", sample=SAMPLES),
+        "reports/report.md",
+
+
+rule qc:
+    input:
+        r1=lambda w: config["samples"][w.sample]["r1"],
+        r2=lambda w: config["samples"][w.sample]["r2"],
+    output:
+        r1="results/qc/{sample}_R1.fq.gz",
+        r2="results/qc/{sample}_R2.fq.gz",
+        report="results/qc/{sample}.json",
+    params:
+        adapter=config["qc"]["adapter"],
+        adapter_r2=config["qc"]["adapter_r2"],
+        quality=config["qc"]["quality"],
+        min_length=config["qc"]["min_length"],
+    threads: 8
+    shell:
+        """
+        python scripts/qc.py \
+          --r1 {input.r1} --r2 {input.r2} \
+          --out-r1 {output.r1} --out-r2 {output.r2} \
+          --report-json {output.report} \
+          --adapter '{params.adapter}' \
+          --adapter-r2 '{params.adapter_r2}' \
+          --quality {params.quality} \
+          --min-length {params.min_length} \
+          --threads {threads}
+        """
+
+
+rule consensus:
+    input:
+        r1="results/qc/{sample}_R1.fq.gz",
+        r2="results/qc/{sample}_R2.fq.gz",
+    output:
+        fasta="results/consensus/{sample}.fasta",
+        stats="results/consensus/{sample}.stats.tsv",
+    params:
+        ref=config["reference"]["segments_fasta"],
+        assembler=config["assembly"]["assembler"],
+        irma_config=config["assembly"]["irma_config"],
+        min_depth=config["assembly"]["min_depth"],
+        threshold=config["assembly"]["consensus_threshold"],
+        workdir="results/irma/{sample}",
+        segments=",".join(SEGMENTS),
+    threads: config["assembly"]["threads"]
+    shell:
+        """
+        python scripts/consensus.py \
+          --sample {wildcards.sample} \
+          --r1 {input.r1} --r2 {input.r2} --ref '{params.ref}' \
+          --out-fasta {output.fasta} --out-stats {output.stats} \
+          --assembler {params.assembler} \
+          --irma-config {params.irma_config} \
+          --min-depth {params.min_depth} \
+          --threshold {params.threshold} \
+          --workdir {params.workdir} \
+          --segments {params.segments} \
+          --threads {threads}
+        """
+
+
+rule typing:
+    input:
+        consensus="results/consensus/{sample}.fasta",
+    output:
+        tsv="results/nextclade/{sample}.tsv",
+    params:
+        dataset_map=",".join(
+            f"{k}={v}"
+            for k, v in config["typing"]["nextclade_datasets"].items()
+        ),
+        outdir="results/nextclade/{sample}",
+    shell:
+        """
+        python scripts/nextclade_typing.py \
+          --consensus {input.consensus} \
+          --out {output.tsv} \
+          --dataset-map '{params.dataset_map}' \
+          --outdir {params.outdir}
+        """
+
+
+rule markers:
+    input:
+        nextclade="results/nextclade/{sample}.tsv",
+        markers=config["markers"]["file"],
+    output:
+        tsv="results/markers/{sample}.tsv",
+    shell:
+        """
+        python scripts/markers.py \
+          --nextclade {input.nextclade} \
+          --markers {input.markers} \
+          --out {output.tsv}
+        """
+
+
+rule report:
+    input:
+        consensus=expand("results/consensus/{sample}.fasta", sample=SAMPLES),
+        nextclade=expand("results/nextclade/{sample}.tsv", sample=SAMPLES),
+        markers=expand("results/markers/{sample}.tsv", sample=SAMPLES),
+    params:
+        results="results",
+        figures="figures",
+    output:
+        "reports/report.md",
+    shell:
+        """
+        python scripts/report.py \
+          --results {params.results} \
+          --figures {params.figures} \
+          --out {output}
+        """
+
+
+# ---------------- 可选：系统发育 ----------------
+
+rule phylo:
+    input:
+        fasta=config["phylogeny"]["input_fasta"],
+    output:
+        aln=f"results/phylo/{PHYLO_SEG}.aln.fasta",
+        trim=f"results/phylo/{PHYLO_SEG}.trim.fasta",
+        tree=f"results/phylo/{PHYLO_SEG}.treefile",
+    params:
+        segment=PHYLO_SEG,
+        mafft_args=config["phylogeny"]["mafft_args"],
+        iqtree_args=config["phylogeny"]["iqtree_args"],
+    threads: config["phylogeny"]["threads"]
+    shell:
+        """
+        python scripts/phylo.py \
+          --fasta {input.fasta} \
+          --segment {params.segment} \
+          --outdir results/phylo \
+          --mafft-args '{params.mafft_args}' \
+          --iqtree-args '{params.iqtree_args}' \
+          --threads {threads}
+        """
+
+
+rule codon_align:
+    input:
+        fasta=config["phylogeny"]["input_fasta"],
+    output:
+        aln=f"results/phylo/{PHYLO_SEG}.codon.aln.fasta",
+        trim=f"results/phylo/{PHYLO_SEG}.codon.trim.fasta",
+    params:
+        segment=PHYLO_SEG,
+        mafft_args=config["phylogeny"]["mafft_args"],
+    threads: config["phylogeny"]["threads"]
+    shell:
+        """
+        python scripts/phylo.py \
+          --fasta {input.fasta} \
+          --segment {params.segment} \
+          --outdir results/phylo \
+          --codon-only \
+          --mafft-args '{params.mafft_args}' \
+          --threads {threads}
+        """
+
+
+rule timetree:
+    input:
+        tree=f"results/phylo/{PHYLO_SEG}.treefile",
+        aln=f"results/phylo/{PHYLO_SEG}.trim.fasta",
+        metadata=config["phylogeny"]["metadata"],
+    output:
+        tree=f"results/phylo/{PHYLO_SEG}.timetree.nwk",
+        clock=f"results/phylo/{PHYLO_SEG}.clock.tsv",
+    params:
+        prefix=PHYLO_SEG,
+        treetime_args=config["phylogeny"]["treetime_args"],
+    shell:
+        """
+        python scripts/timetree.py \
+          --tree {input.tree} \
+          --aln {input.aln} \
+          --metadata {input.metadata} \
+          --outdir results/phylo \
+          --prefix {params.prefix} \
+          --out-tree {output.tree} \
+          --out-clock {output.clock} \
+          --treetime-args '{params.treetime_args}'
+        """
+
+
+rule selection:
+    input:
+        aln=config["selection"]["codon_alignment"],
+        tree=config["selection"]["tree"],
+    output:
+        tsv=f"results/selection/{PHYLO_SEG}.selection.tsv",
+    params:
+        prefix=PHYLO_SEG,
+    shell:
+        """
+        python scripts/selection.py \
+          --aln {input.aln} \
+          --tree {input.tree} \
+          --outdir results/selection \
+          --prefix {params.prefix}
+        """
+
+
+rule reassortment:
+    input:
+        trees=list(config["reassortment"]["trees"].values()),
+    output:
+        matrix="results/reassortment/rf_matrix.tsv",
+        candidates="results/reassortment/candidates.tsv",
+    params:
+        tree_map=",".join(
+            f"{k}={v}"
+            for k, v in config["reassortment"]["trees"].items()
+        ),
+        threshold=config["reassortment"]["distance_threshold"],
+    shell:
+        """
+        python scripts/reassortment.py \
+          --tree-map '{params.tree_map}' \
+          --outdir results/reassortment \
+          --threshold {params.threshold}
+        """
+
+
+rule plot_tree:
+    input:
+        tree=f"results/phylo/{PHYLO_SEG}.treefile",
+    output:
+        fig=f"figures/{PHYLO_SEG}_tree.png",
+    params:
+        title=f"Influenza A {PHYLO_SEG}",
+    shell:
+        """
+        python scripts/plot_tree.py \
+          --tree {input.tree} \
+          --out {output.fig} \
+          --title '{params.title}'
+        """
+
+
+# ---------------- 可选：宿主转录组 ----------------
+
+rule quant:
+    input:
+        r1="results/qc/{sample}_R1.fq.gz",
+        r2="results/qc/{sample}_R2.fq.gz",
+    output:
+        quant="results/rnaseq/{sample}/quant.sf",
+    params:
+        index=config["rnaseq"]["salmon_index"],
+        transcriptome=config["rnaseq"]["transcriptome"],
+    threads: 8
+    shell:
+        """
+        python scripts/quant.py \
+          --r1 {input.r1} --r2 {input.r2} \
+          --index {params.index} \
+          --transcriptome {params.transcriptome} \
+          --outdir results/rnaseq/{wildcards.sample} \
+          --threads {threads}
+        """
+
+
+rule deseq2:
+    input:
+        quant=expand("results/rnaseq/{sample}/quant.sf", sample=SAMPLES),
+        metadata=config["rnaseq"]["metadata"],
+    output:
+        results="results/deseq2/deseq2_results.tsv",
+        pca="results/deseq2/pca.png",
+        volcano="results/deseq2/volcano.png",
+        heatmap="results/deseq2/heatmap.png",
+    params:
+        design=config["rnaseq"]["design"],
+        contrast=config["rnaseq"]["contrast"],
+        alpha=config["rnaseq"]["alpha"],
+        lfc=config["rnaseq"]["lfc_threshold"],
+        tx2gene=config["rnaseq"].get("tx2gene", ""),
+    threads: 8
+    shell:
+        """
+        python scripts/deseq2.py \
+          --quant-dir results/rnaseq \
+          --metadata {input.metadata} \
+          --outdir results/deseq2 \
+          --design '{params.design}' \
+          --contrast '{params.contrast}' \
+          --alpha {params.alpha} \
+          --lfc {params.lfc} \
+          --tx2gene '{params.tx2gene}' \
+          --threads {threads}
+        """
+
+
+rule enrich:
+    input:
+        deseq="results/deseq2/deseq2_results.tsv",
+    output:
+        "results/enrich/enrichment.tsv",
+    params:
+        gmt=config["rnaseq"].get("gmt", ""),
+        gene_sets=config["rnaseq"].get("gene_sets", "KEGG_2021_Human"),
+        id_map=config["rnaseq"].get("id_map", ""),
+        padj=config["rnaseq"]["alpha"],
+        lfc=config["rnaseq"]["lfc_threshold"],
+    shell:
+        """
+        python scripts/enrich.py \
+          --deseq {input.deseq} \
+          --outdir results/enrich \
+          --gmt '{params.gmt}' \
+          --gene-sets '{params.gene_sets}' \
+          --id-map '{params.id_map}' \
+          --padj {params.padj} \
+          --lfc {params.lfc}
+        """

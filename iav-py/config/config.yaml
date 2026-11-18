@@ -1,0 +1,97 @@
+# ============================================================
+# iav-py 主配置
+# 修改 samples / reference / typing 后即可运行核心流程
+# ============================================================
+
+samples:
+  # 每个样本一对双端 FASTQ；键名会成为结果文件的 sample 名
+  sampleA:
+    r1: data/raw/sampleA_R1.fastq.gz
+    r2: data/raw/sampleA_R2.fastq.gz
+
+reference:
+  # 8 个节段的顺序
+  segments: [PB2, PB1, PA, HA, NP, NA, MP, NS]
+  # 多节段参考 FASTA：header 必须是 PB2/PB1/PA/HA/NP/NA/MP/NS，
+  # 或 PB2|xxx、PB2_xxx 形式
+  segments_fasta: ref/segments.fa
+
+qc:
+  adapter: AGATCGGAAGAGCACACGTCTGAACTCCAGTCA
+  adapter_r2: AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT
+  quality: 20
+  min_length: 50
+
+assembly:
+  # irma: 调用 CDC IRMA（推荐）
+  # map : minimap2 + samtools + pysam，自定义阈值
+  assembler: irma
+  irma_config: FLU-fastq
+  min_depth: 10
+  consensus_threshold: 0.5
+  threads: 8
+
+typing:
+  # Nextclade 数据集名称。运行 `nextclade dataset list | grep -i flu`
+  # 查看当前可用名称后再修改。
+  nextclade_datasets:
+    HA: flu_h1n1pdm_ha
+    NA: flu_h1n1pdm_na
+    MP: flu_h1n1pdm_mp
+    NP: flu_h1n1pdm_np
+    PA: flu_h1n1pdm_pa
+    PB1: flu_h1n1pdm_pb1
+    PB2: flu_h1n1pdm_pb2
+    NS: flu_h1n1pdm_ns
+
+phylogeny:
+  # 系统发育模块一次分析一个节段；换节段时修改这里
+  segment: HA
+  # 你的多序列 FASTA（不含 sample 的 consensus）
+  input_fasta: data/phylo/HA.fasta
+  # 元数据：制表符分隔，至少包含 name 和 date 两列
+  metadata: data/metadata/metadata.tsv
+  mafft_args: "--auto"
+  iqtree_args: "-m MFP -B 1000"
+  treetime_args: "--reroot least-squares"
+  threads: 8
+
+selection:
+  # 密码子比对由 `snakemake results/phylo/HA.codon.trim.fasta` 生成
+  codon_alignment: results/phylo/HA.codon.trim.fasta
+  tree: results/phylo/HA.treefile
+
+reassortment:
+  # 8 个节段的树；需要先对每个节段分别建树
+  trees:
+    PB2: results/phylo/PB2.treefile
+    PB1: results/phylo/PB1.treefile
+    PA: results/phylo/PA.treefile
+    HA: results/phylo/HA.treefile
+    NP: results/phylo/NP.treefile
+    NA: results/phylo/NA.treefile
+    MP: results/phylo/MP.treefile
+    NS: results/phylo/NS.treefile
+  distance_threshold: 0.30
+
+markers:
+  file: config/markers.yaml
+
+rnaseq:
+  # 转录组规则不在默认 rule all 中；按需指定 target 运行
+  # （见 README 6.6）。enabled 仅作标记。
+  enabled: false
+  transcriptome: ref/combined.fa
+  salmon_index: ref/salmon_idx
+  metadata: data/metadata/rnaseq_metadata.tsv
+  design: "~condition"
+  contrast: "condition,H5N1,mock"
+  alpha: 0.05
+  lfc_threshold: 1.0
+  # 可选：转录本 -> 基因映射（两列 TSV：transcript_id<TAB>symbol）
+  tx2gene: ""
+  # 可选：本地 GSEA GMT；留空则走 Enrichr 在线富集
+  gmt: ""
+  gene_sets: KEGG_2021_Human
+  # 可选：转录本 ID -> gene symbol 映射，供富集使用
+  id_map: ""

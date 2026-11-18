@@ -1,0 +1,29 @@
+name: flurnaseq
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - salmon
+  - star
+  - subread
+  - htseq
+  - samtools
+  - biopython
+  - pysam
+  - pandas
+  - numpy
+  - scipy
+  - matplotlib
+  - seaborn
+  - scikit-learn
+  - jupyterlab
+  - nbconvert
+  - papermill
+  - pip
+  - pip:
+      - pydeseq2
+      - gseapy
+      - decoupler
+      - scanpy
+      - anndata

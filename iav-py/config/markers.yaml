@@ -1,0 +1,289 @@
+# ============================================================
+# 甲流功能标记表（示例，需按亚型与编号体系核对后使用）
+#
+# type: substitution | deletion
+# segment: PB2/PB1/PA/HA/NP/NA/MP/NS（Nextclade 输出中的节段名）
+# gene: 可选；与 Nextclade aaSubstitutions 中的基因前缀匹配
+# dataset_contains: 可选；只在 Nextclade dataset 名称包含该字符串时评估
+# 注意：HA、NA 的编号随亚型不同，必须结合具体数据集解释。
+# ============================================================
+
+markers:
+  # ---------------- NA 抑制剂 ----------------
+  - id: NA_H275Y
+    segment: NA
+    gene: NA
+    dataset_contains: h1n1pdm
+    type: substitution
+    position: 275
+    ref: H
+    alt: Y
+    category: antiviral
+    label: oseltamivir
+    note: "N1 numbering; N2 equivalent is H274Y"
+
+  - id: NA_I223R
+    segment: NA
+    gene: NA
+    dataset_contains: h1n1pdm
+    type: substitution
+    position: 223
+    ref: I
+    alt: R
+    category: antiviral
+    label: oseltamivir
+    note: "N1 numbering; per-subtype verification required"
+
+  - id: NA_I223V
+    segment: NA
+    gene: NA
+    dataset_contains: h1n1pdm
+    type: substitution
+    position: 223
+    ref: I
+    alt: V
+    category: antiviral
+    label: oseltamivir
+    note: "N1 numbering; per-subtype verification required"
+
+  - id: NA_S247N
+    segment: NA
+    gene: NA
+    dataset_contains: h1n1pdm
+    type: substitution
+    position: 247
+    ref: S
+    alt: N
+    category: antiviral
+    label: oseltamivir
+    note: "N1 numbering; per-subtype verification required"
+
+  - id: NA_N2_E119V
+    segment: NA
+    gene: NA
+    dataset_contains: h3n2
+    type: substitution
+    position: 119
+    ref: E
+    alt: V
+    category: antiviral
+    label: oseltamivir
+    note: "N2 numbering"
+
+  - id: NA_N2_R292K
+    segment: NA
+    gene: NA
+    dataset_contains: h3n2
+    type: substitution
+    position: 292
+    ref: R
+    alt: K
+    category: antiviral
+    label: oseltamivir
+    note: "N2 numbering"
+
+  - id: NA_N2_H274Y
+    segment: NA
+    gene: NA
+    dataset_contains: h3n2
+    type: substitution
+    position: 274
+    ref: H
+    alt: Y
+    category: antiviral
+    label: oseltamivir
+    note: "N2 numbering; N1 equivalent is H275Y"
+
+  - id: NA_N2_N294S
+    segment: NA
+    gene: NA
+    dataset_contains: h3n2
+    type: substitution
+    position: 294
+    ref: N
+    alt: S
+    category: antiviral
+    label: oseltamivir
+    note: "N2 numbering"
+
+  # ---------------- M2 金刚烷胺 ----------------
+  - id: M2_S31N
+    segment: MP
+    gene: M2
+    type: substitution
+    position: 31
+    ref: S
+    alt: N
+    category: antiviral
+    label: adamantanes
+    note: "M2 numbering"
+
+  - id: M2_V27A
+    segment: MP
+    gene: M2
+    type: substitution
+    position: 27
+    ref: V
+    alt: A
+    category: antiviral
+    label: adamantanes
+    note: "M2 numbering"
+
+  - id: M2_L26F
+    segment: MP
+    gene: M2
+    type: substitution
+    position: 26
+    ref: L
+    alt: F
+    category: antiviral
+    label: adamantanes
+    note: "M2 numbering"
+
+  - id: M2_A30T
+    segment: MP
+    gene: M2
+    type: substitution
+    position: 30
+    ref: A
+    alt: T
+    category: antiviral
+    label: adamantanes
+    note: "M2 numbering"
+
+  # ---------------- PA 巴洛沙韦 ----------------
+  - id: PA_I38T
+    segment: PA
+    gene: PA
+    type: substitution
+    position: 38
+    ref: I
+    alt: T
+    category: antiviral
+    label: baloxavir
+    note: "PA protein numbering"
+
+  - id: PA_I38M
+    segment: PA
+    gene: PA
+    type: substitution
+    position: 38
+    ref: I
+    alt: M
+    category: antiviral
+    label: baloxavir
+    note: "PA protein numbering"
+
+  - id: PA_I38F
+    segment: PA
+    gene: PA
+    type: substitution
+    position: 38
+    ref: I
+    alt: F
+    category: antiviral
+    label: baloxavir
+    note: "PA protein numbering"
+
+  # ---------------- PB2 宿主适应 ----------------
+  - id: PB2_E627K
+    segment: PB2
+    gene: PB2
+    type: substitution
+    position: 627
+    ref: E
+    alt: K
+    category: host_adaptation
+    label: mammalian adaptation
+    note: "PB2 numbering"
+
+  - id: PB2_D701N
+    segment: PB2
+    gene: PB2
+    type: substitution
+    position: 701
+    ref: D
+    alt: N
+    category: host_adaptation
+    label: mammalian adaptation
+    note: "PB2 numbering"
+
+  - id: PB2_Q591K
+    segment: PB2
+    gene: PB2
+    type: substitution
+    position: 591
+    ref: Q
+    alt: K
+    category: host_adaptation
+    label: mammalian adaptation
+    note: "PB2 numbering"
+
+  - id: PB2_T271A
+    segment: PB2
+    gene: PB2
+    type: substitution
+    position: 271
+    ref: T
+    alt: A
+    category: host_adaptation
+    label: polymerase activity
+    note: "PB2 numbering"
+
+  - id: PB2_K526R
+    segment: PB2
+    gene: PB2
+    type: substitution
+    position: 526
+    ref: K
+    alt: R
+    category: host_adaptation
+    label: polymerase activity
+    note: "PB2 numbering"
+
+  # ---------------- HA 受体结合（H1 编号） ----------------
+  - id: H1_E190D
+    segment: HA
+    gene: HA
+    dataset_contains: h1n1pdm
+    type: substitution
+    position: 190
+    ref: E
+    alt: D
+    category: receptor_binding
+    label: human receptor preference
+    note: "H1 numbering; H3/H5 use different numbering"
+
+  - id: H1_G225D
+    segment: HA
+    gene: HA
+    dataset_contains: h1n1pdm
+    type: substitution
+    position: 225
+    ref: G
+    alt: D
+    category: receptor_binding
+    label: human receptor preference
+    note: "H1 numbering"
+
+  # ---------------- NS1 ----------------
+  - id: NS1_P42S
+    segment: NS
+    gene: NS1
+    type: substitution
+    position: 42
+    ref: P
+    alt: S
+    category: immune_evasion
+    label: virulence
+    note: "NS1 numbering"
+
+  - id: NS1_80_84_del
+    segment: NS
+    gene: NS1
+    type: deletion
+    start: 80
+    end: 84
+    category: host_adaptation
+    label: NS1 truncation
+    note: "80-84 deletion; check lineage context"
