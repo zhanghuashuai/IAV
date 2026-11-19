@@ -26,7 +26,7 @@ assembly:
   # irma: 调用 CDC IRMA（推荐）
   # map : minimap2 + samtools + pysam，自定义阈值
   assembler: irma
-  irma_config: FLU-fastq
+  irma_config: FLU
   min_depth: 10
   consensus_threshold: 0.5
   threads: 8
@@ -35,14 +35,14 @@ typing:
   # Nextclade 数据集名称。运行 `nextclade dataset list | grep -i flu`
   # 查看当前可用名称后再修改。
   nextclade_datasets:
-    HA: flu_h1n1pdm_ha
-    NA: flu_h1n1pdm_na
-    MP: flu_h1n1pdm_mp
-    NP: flu_h1n1pdm_np
-    PA: flu_h1n1pdm_pa
-    PB1: flu_h1n1pdm_pb1
-    PB2: flu_h1n1pdm_pb2
-    NS: flu_h1n1pdm_ns
+    HA: community/anses/swIAV/H1
+    NA: community/anses/swIAV/N2
+    MP: community/anses/swIAV/MP
+    NP: community/anses/swIAV/NP
+    PA: community/anses/swIAV/PA
+    PB1: community/anses/swIAV/PB1
+    PB2: community/anses/swIAV/PB2
+    NS: community/anses/swIAV/NS
 
 phylogeny:
   # 系统发育模块一次分析一个节段；换节段时修改这里

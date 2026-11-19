@@ -141,7 +141,12 @@ def main() -> None:
         segment = marker.get("segment", "")
         row = rows_by_segment.get(segment, {})
         dataset = str(row.get("dataset", ""))
-        applicable = segment in rows_by_segment and is_applicable(marker, dataset)
+        row_status = str(row.get("status", "ok"))
+        applicable = (
+            segment in rows_by_segment
+            and row_status == "ok"
+            and is_applicable(marker, dataset)
+        )
         if applicable:
             subs = parse_substitutions(
                 row.get("aa_substitutions") or row.get("aaSubstitutions")

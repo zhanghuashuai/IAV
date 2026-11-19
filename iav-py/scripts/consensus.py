@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import re
 import shutil
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -35,7 +37,7 @@ def normalize_reference(
     mapping: dict[str, str] = {}
     for seg in segments:
         for header, seq in records.items():
-            token = header.split()[0]
+            token = header.split()[0].upper()
             if (
                 token == seg
                 or token.startswith(seg + "|")
@@ -56,9 +58,9 @@ def normalize_reference(
 
 def infer_segment(path: Path, segments: list[str]) -> str | None:
     stem = path.stem
-    tokens = re.split(r"[_\-.|]", stem)
+    tokens = [t.upper() for t in re.split(r"[_\-.|]", stem)]
     for seg in sorted(segments, key=len, reverse=True):
-        if stem == seg or seg in tokens:
+        if stem.upper() == seg or seg in tokens:
             return seg
     return None
 
@@ -90,10 +92,27 @@ def run_irma(
     ensure_dir(workdir.parent)
 
     cmd = [irma, args.irma_config, args.r1, args.r2, str(workdir)]
-    run(cmd, log_path=str(workdir) + ".irma.log")
+    log_path = str(workdir) + ".irma.log"
+    try:
+        run(cmd, log_path=log_path)
+    except subprocess.CalledProcessError:
+        sys.exit(
+            f"[ERROR] IRMA 运行失败，详见日志：{log_path}\n"
+            "  常见原因：--irma-config 名称不对；Illumina 双端 FASTQ 用 FLU"
+            "（快速版 FLU-fast）。"
+        )
 
-    consensus_dir = workdir / "consensus"
-    files = list(consensus_dir.glob("*.fasta")) if consensus_dir.exists() else []
+    # IRMA 输出布局随版本/运行方式变化：
+    #   新版单样本：workdir/A_HA_H1.fasta
+    #   经典布局：  workdir/consensus/*.fasta
+    files: list[Path] = []
+    for d in (workdir / "consensus", workdir):
+        if not d.is_dir():
+            continue
+        candidates = sorted(d.glob("*.fasta")) + sorted(d.glob("*.fa"))
+        if candidates:
+            files = candidates
+            break
     found: dict[str, Path] = {}
     for f in files:
         seg = infer_segment(f, segments)
@@ -254,7 +273,7 @@ def main() -> None:
     p.add_argument("--out-fasta", required=True)
     p.add_argument("--out-stats", required=True)
     p.add_argument("--assembler", choices=["irma", "map"], default="irma")
-    p.add_argument("--irma-config", default="FLU-fastq")
+    p.add_argument("--irma-config", default="FLU")
     p.add_argument("--min-depth", type=int, default=10)
     p.add_argument("--threshold", type=float, default=0.5)
     p.add_argument("--workdir", required=True)
@@ -263,7 +282,9 @@ def main() -> None:
     args = p.parse_args()
 
     setup_logging()
-    segments = [s.strip() for s in args.segments.split(",") if s.strip()]
+    segments = [
+        s.strip().upper() for s in args.segments.split(",") if s.strip()
+    ]
     workdir = Path(args.workdir)
     ensure_dir(workdir.parent)
 
@@ -276,6 +297,20 @@ def main() -> None:
 
     write_fasta(records, args.out_fasta)
     write_tsv(rows, args.out_stats)
+
+    if not records:
+        Path(args.out_fasta).unlink(missing_ok=True)
+        sys.exit(
+            "[ERROR] 没有生成任何节段 consensus。请检查：\n"
+            f"  - stats: {args.out_stats}\n"
+            f"  - 组装日志: {workdir}.irma.log（IRMA）或 {workdir}/map.log（map）\n"
+            "  - reads 是否与参考/预期亚型匹配、是否有足够流感 reads。"
+        )
+    if len(records) < len(segments):
+        logging.warning(
+            "只组装出 %d/%d 个节段；缺失节段请查看 stats 表。",
+            len(records), len(segments),
+        )
 
 
 if __name__ == "__main__":

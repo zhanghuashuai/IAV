@@ -1,0 +1,48 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nextstrain/nextclade/refs/heads/release/packages/nextclade-schemas/output-json.schema.json",
+  "schemaVersion": "3.0.0",
+  "nextcladeAlgoVersion": "3.29.0",
+  "createdAt": "2026-11-19T02:07:59.043079017+00:00",
+  "cladeNodeAttrKeys": [
+    {
+      "name": "legacy-clade",
+      "displayName": "Legacy clade",
+      "description": "Previous clades system that is no longer actively used.",
+      "hideInWeb": true,
+      "skipAsReference": false
+    },
+    {
+      "name": "short-clade",
+      "displayName": "Abbr.legacy clade name",
+      "description": "Shortened names of legacy clades.",
+      "hideInWeb": false,
+      "skipAsReference": true
+    },
+    {
+      "name": "subclade",
+      "displayName": "Subclade",
+      "description": "Fine-grained subclade annotation.",
+      "hideInWeb": true,
+      "skipAsReference": true
+    },
+    {
+      "name": "proposedSubclade",
+      "displayName": "Proposed subclade",
+      "description": "Includes proposals of new subclades. These can change anytime.",
+      "hideInWeb": true,
+      "skipAsReference": true
+    }
+  ],
+  "phenotypeAttrKeys": [],
+  "refNodes": {},
+  "results": [],
+  "errors": [
+    {
+      "index": 0,
+      "seqName": "sampleA|HA",
+      "errors": [
+        "When processing sequence #0 'sampleA|HA': When calculating seed matches: Unable to align: seed alignment covers 2.36% of the query sequence, which is less than expected 10.00% (configurable using 'min seed cover' CLI flag or dataset property). This is likely due to low quality of the provided sequence, or due to using incorrect reference sequence."
+      ]
+    }
+  ]
+}

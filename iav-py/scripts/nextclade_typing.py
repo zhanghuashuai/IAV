@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+import re
 import shutil
 import subprocess
 import sys
@@ -20,38 +21,88 @@ from utils import (
 )
 
 
+KNOWN_SEGMENTS = {"PB2", "PB1", "PA", "HA", "NP", "NA", "MP", "NS"}
+
+
 def split_by_segment(records: dict[str, str]) -> dict[str, list[tuple[str, str]]]:
+    """从 header 中识别节段。
+
+    支持 sample|HA、sample_HA、sample-HA、sample.HA、sample|HA|extra 等写法。
+    识别不到已知节段时，保留最后一个 token，便于后续报错诊断。
+    """
     out: dict[str, list[tuple[str, str]]] = {}
     for header, seq in records.items():
-        if "|" in header:
-            _sample, seg = header.split("|", 1)
-        else:
-            parts = header.replace("_", "|").split("|")
-            seg = parts[-1]
+        tokens = [t for t in re.split(r"[|_\-\s.]+", header) if t]
+        seg = next(
+            (t for t in tokens if t.upper() in KNOWN_SEGMENTS),
+            tokens[-1] if tokens else "",
+        )
+        seg = seg.upper() if seg.upper() in KNOWN_SEGMENTS else seg
         out.setdefault(seg, []).append((header, seq))
     return out
+
+
+def sample_from_header(header: str) -> str:
+    if "|" in header:
+        return header.split("|", 1)[0]
+    tokens = [t for t in re.split(r"[|_\-\s.]+", header) if t]
+    return tokens[0] if tokens else header
+
+
+def is_cli_mismatch(stderr: str) -> bool:
+    """判断失败是否由 Nextclade 版本间 CLI 参数差异导致。"""
+    text = stderr.lower()
+    return any(
+        key in text
+        for key in (
+            "is removed in favor of",
+            "unexpected argument",
+            "unrecognized",
+            "positional arguments",
+        )
+    )
 
 
 def run_nextclade(
     fasta_path: Path, dataset: str, outdir: Path, tsv_path: Path
 ) -> None:
     ensure_dir(outdir)
-    base = [
+    # Nextclade >= 3.29：输入 FASTA 为位置参数，--output-dir 改为 --output-all
+    modern = [
+        "nextclade", "run",
+        "--dataset-name", dataset,
+        "--output-all", str(outdir),
+        "--output-tsv", str(tsv_path),
+        str(fasta_path),
+    ]
+    # Nextclade < 3.29：--input-fasta + --output-dir
+    legacy = [
+        "nextclade", "run",
+        "--input-fasta", str(fasta_path),
+        "--output-dir", str(outdir),
+        "--dataset-name", dataset,
+        "--output-tsv", str(tsv_path),
+    ]
+    # 更旧版本可能没有 --output-tsv，运行后从输出目录复制 nextclade.tsv
+    legacy_no_tsv = [
         "nextclade", "run",
         "--input-fasta", str(fasta_path),
         "--output-dir", str(outdir),
         "--dataset-name", dataset,
     ]
-    proc = subprocess.run(
-        base + ["--output-tsv", str(tsv_path)],
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        # 兼容没有 --output-tsv 的旧版本
-        proc = subprocess.run(base, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr[-2000:])
+
+    errors: list[str] = []
+    proc = None
+    for cmd in (modern, legacy, legacy_no_tsv):
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode == 0:
+            break
+        errors.append(proc.stderr[-2000:])
+        # 只有疑似参数不兼容时才继续尝试旧语法
+        if not is_cli_mismatch(proc.stderr):
+            break
+    if proc is None or proc.returncode != 0:
+        raise RuntimeError(errors[-1] if errors else "Nextclade 运行失败")
     if not tsv_path.exists():
         fallback = outdir / "nextclade.tsv"
         if fallback.exists():
@@ -84,8 +135,17 @@ def main() -> None:
     args = p.parse_args()
 
     setup_logging()
-    datasets = parse_pairs(args.dataset_map)
+    datasets = {
+        key.upper(): value
+        for key, value in parse_pairs(args.dataset_map).items()
+    }
     records = read_fasta(args.consensus)
+    if not records:
+        sys.exit(
+            f"[ERROR] consensus FASTA 为空或没有序列：{args.consensus}\n"
+            "  请检查组装是否成功（results/consensus/*.stats.tsv 和 IRMA 日志），"
+            "然后重新运行 consensus。"
+        )
     by_seg = split_by_segment(records)
 
     out_rows: list[dict] = []
@@ -102,14 +162,24 @@ def main() -> None:
 
         status = "ok"
         row: dict = {}
+        errors = ""
         try:
             run_nextclade(fasta, datasets[seg], seg_dir / "nextclade_out", tsv)
             row = parse_first_row(tsv)
+            if not row:
+                raise RuntimeError("Nextclade TSV 没有结果行")
+            errors = get(row, "errors")
+            if errors:
+                status = "excluded"
+                logging.warning(
+                    "节段 %s 未匹配数据集 %s：%s",
+                    seg, datasets[seg], errors[:200],
+                )
         except Exception as exc:  # noqa: BLE001
             logging.error("Nextclade 失败：%s / %s: %s", seg, datasets[seg], exc)
             status = "failed"
 
-        sample = by_seg[seg][0][0].split("|", 1)[0]
+        sample = sample_from_header(by_seg[seg][0][0])
         out_rows.append(
             {
                 "sample": sample,
@@ -126,11 +196,18 @@ def main() -> None:
                 "total_frame_shifts": get(row, "totalFrameShifts"),
                 "total_missing": get(row, "totalMissing"),
                 "coverage": get(row, "coverage"),
+                "errors": errors,
             }
         )
 
     if not out_rows:
-        sys.exit("[ERROR] 没有产生任何 Nextclade 结果，请检查 dataset-map。")
+        sys.exit(
+            "[ERROR] 没有产生任何 Nextclade 结果。\n"
+            f"  consensus 中的节段: {sorted(by_seg)}\n"
+            f"  dataset-map 中的节段: {sorted(datasets)}\n"
+            "  请确认 FASTA header 形如 sample|HA，且 dataset-map 的键"
+            "（HA/NA/...）与节段名一致。"
+        )
     write_tsv(out_rows, args.out)
     logging.info("写出 %d 个节段的 Nextclade 结果：%s", len(out_rows), args.out)
 

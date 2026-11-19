@@ -1,0 +1,9 @@
+sample	segment	status	length	n_count	mean_depth	source
+sampleA	PB2	missing	0	0		IRMA
+sampleA	PB1	missing	0	0		IRMA
+sampleA	PA	missing	0	0		IRMA
+sampleA	HA	missing	0	0		IRMA
+sampleA	NP	missing	0	0		IRMA
+sampleA	NA	missing	0	0		IRMA
+sampleA	MP	missing	0	0		IRMA
+sampleA	NS	missing	0	0		IRMA
