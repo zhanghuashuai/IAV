@@ -21,6 +21,7 @@ from pathlib import Path
 
 SAMPLES = list(config["samples"].keys())
 SEGMENTS = config["reference"]["segments"]
+SEGMENT_PATTERN = "|".join(SEGMENTS)
 PHYLO_SEG = config["phylogeny"]["segment"]
 
 
@@ -63,6 +64,29 @@ def reassortment_tree_inputs() -> list[str]:
     return trees if len(SAMPLES) >= min_taxa else []
 
 
+def all_segment_targets() -> list[str]:
+    """一次性分析全部节段所需的所有产物。"""
+    targets: list[str] = []
+    targets += expand("results/consensus/{sample}.fasta", sample=SAMPLES)
+    targets += expand("results/nextclade/{sample}.tsv", sample=SAMPLES)
+    targets += expand("results/markers/{sample}.tsv", sample=SAMPLES)
+    targets += expand("results/phylo/{segment}.treefile", segment=SEGMENTS)
+    targets += expand(
+        "results/phylo/codon/{segment}.codon.trim.fasta", segment=SEGMENTS
+    )
+    targets += expand(
+        "results/selection/{segment}.selection.tsv", segment=SEGMENTS
+    )
+    targets += expand("figures/{segment}_tree.png", segment=SEGMENTS)
+    targets.append("results/phylo/timetree_status.tsv")
+    if Path(config["phylogeny"].get("metadata", "")).is_file():
+        targets += expand(
+            "results/phylo/{segment}.timetree.nwk", segment=SEGMENTS
+        )
+    targets.append("results/reassortment/status.tsv")
+    return targets
+
+
 rule all:
     input:
         expand("results/qc/{sample}.json", sample=SAMPLES),
@@ -70,6 +94,28 @@ rule all:
         expand("results/markers/{sample}.tsv", sample=SAMPLES),
         "reports/report.md",
         "results/reassortment/status.tsv",
+
+
+rule all_segments:
+    input:
+        "reports/report_all.md",
+
+
+rule report_all:
+    input:
+        all_segment_targets(),
+    output:
+        "reports/report_all.md",
+    params:
+        results="results",
+        figures="figures",
+    shell:
+        """
+        python scripts/report.py \
+          --results {params.results} \
+          --figures {params.figures} \
+          --out {output}
+        """
 
 
 rule qc:
@@ -192,6 +238,8 @@ rule report:
 # ---------------- 可选：系统发育 ----------------
 
 rule phylo_dataset_ref:
+    wildcard_constraints:
+        segment=SEGMENT_PATTERN,
     output:
         "results/nextclade_datasets/{segment}/reference.fasta",
     params:
@@ -205,8 +253,11 @@ rule phylo_dataset_ref:
 
 
 rule phylo_input:
+    wildcard_constraints:
+        segment=SEGMENT_PATTERN,
     input:
         dataset_ref=phylo_dataset_reference,
+        consensus=expand("results/consensus/{sample}.fasta", sample=SAMPLES),
     output:
         "results/phylo/{segment}.input.fasta",
     params:
@@ -227,6 +278,8 @@ rule phylo_input:
 
 
 rule phylo:
+    wildcard_constraints:
+        segment=SEGMENT_PATTERN,
     input:
         fasta="results/phylo/{segment}.input.fasta",
     output:
@@ -251,11 +304,13 @@ rule phylo:
 
 
 rule codon_align:
+    wildcard_constraints:
+        segment=SEGMENT_PATTERN,
     input:
         fasta="results/phylo/{segment}.input.fasta",
     output:
-        aln="results/phylo/{segment}.codon.aln.fasta",
-        trim="results/phylo/{segment}.codon.trim.fasta",
+        aln="results/phylo/codon/{segment}.codon.aln.fasta",
+        trim="results/phylo/codon/{segment}.codon.trim.fasta",
     params:
         segment="{segment}",
         mafft_args=config["phylogeny"]["mafft_args"],
@@ -265,14 +320,29 @@ rule codon_align:
         python scripts/phylo.py \
           --fasta {input.fasta} \
           --segment {wildcards.segment} \
-          --outdir results/phylo \
+          --outdir results/phylo/codon \
           --codon-only \
           --mafft-args='{params.mafft_args}' \
           --threads {threads}
         """
 
 
+rule timetree_status:
+    output:
+        "results/phylo/timetree_status.tsv",
+    params:
+        metadata=config["phylogeny"].get("metadata", ""),
+    shell:
+        """
+        python scripts/timetree_status.py \
+          --metadata '{params.metadata}' \
+          --out {output}
+        """
+
+
 rule timetree:
+    wildcard_constraints:
+        segment=SEGMENT_PATTERN,
     input:
         tree="results/phylo/{segment}.treefile",
         aln="results/phylo/{segment}.trim.fasta",
@@ -298,20 +368,22 @@ rule timetree:
 
 
 rule selection:
+    wildcard_constraints:
+        segment=SEGMENT_PATTERN,
     input:
-        aln=config["selection"]["codon_alignment"],
-        tree=config["selection"]["tree"],
+        aln="results/phylo/codon/{segment}.codon.trim.fasta",
+        tree="results/phylo/{segment}.treefile",
     output:
-        tsv=f"results/selection/{PHYLO_SEG}.selection.tsv",
+        tsv="results/selection/{segment}.selection.tsv",
     params:
-        prefix=PHYLO_SEG,
+        prefix="{segment}",
     shell:
         """
         python scripts/selection.py \
           --aln {input.aln} \
           --tree {input.tree} \
           --outdir results/selection \
-          --prefix {params.prefix}
+          --prefix {wildcards.segment}
         """
 
 
@@ -341,6 +413,8 @@ rule reassortment:
 
 
 rule plot_tree:
+    wildcard_constraints:
+        segment=SEGMENT_PATTERN,
     input:
         tree="results/phylo/{segment}.treefile",
     output:
@@ -354,6 +428,11 @@ rule plot_tree:
           --out {output.fig} \
           --title '{params.title}'
         """
+
+
+rule plots_all:
+    input:
+        expand("figures/{segment}_tree.png", segment=SEGMENTS),
 
 
 # ---------------- 可选：宿主转录组 ----------------

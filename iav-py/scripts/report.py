@@ -81,12 +81,14 @@ def main() -> None:
     setup_logging()
     results = Path(args.results)
     figures = Path(args.figures)
+    out = Path(args.out)
 
     stats = read_pattern(results, "consensus/*.stats.tsv")
     subtypes = irma_subtypes(results)
     nextclade = read_pattern(results, "nextclade/*.tsv")
     markers = read_pattern(results, "markers/*.tsv")
     clock = read_pattern(results, "phylo/*.clock.tsv")
+    timetree_status = read_pattern(results, "phylo/timetree_status.tsv")
     reassortment_status = read_pattern(results, "reassortment/status.tsv")
     candidates = read_pattern(results, "reassortment/candidates.tsv")
     selection = read_pattern(results, "selection/*.selection.tsv")
@@ -146,6 +148,8 @@ def main() -> None:
         "",
         "## 4. 系统发育与分子钟",
         "",
+        df_to_md(timetree_status),
+        "",
         df_to_md(clock),
         "",
         "## 5. 重配筛查",
@@ -156,7 +160,7 @@ def main() -> None:
         "",
         "## 6. 选择压力",
         "",
-        df_to_md(selection),
+        df_to_md(selection, max_rows=30),
         "",
         "## 7. 图",
         "",
@@ -182,7 +186,6 @@ def main() -> None:
         "",
     ]
 
-    out = Path(args.out)
     ensure_dir(out.parent)
     out.write_text("\n".join(lines), encoding="utf-8")
     print(f"report: {out}")

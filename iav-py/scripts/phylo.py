@@ -18,7 +18,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from utils import ensure_dir, require_tool, run, setup_logging
+from utils import (
+    ensure_dir,
+    read_fasta,
+    require_tool,
+    run,
+    setup_logging,
+    write_fasta,
+)
 
 
 def find_iqtree() -> str:
@@ -54,6 +61,39 @@ def trimal_align(inp: Path, out: Path) -> None:
         shutil.copy(inp, out)
 
 
+def macse_codon_align(macse: str, fasta: Path, out_nt: Path, out_aa: Path) -> None:
+    run(
+        [
+            macse,
+            "-prog", "alignSequences",
+            "-seq", str(fasta),
+            "-out_NT", str(out_nt),
+            "-out_AA", str(out_aa),
+        ],
+        log_path=str(out_nt) + ".log",
+    )
+
+
+def clean_codon_alignment(inp: Path, out: Path) -> None:
+    """剔除含 MACSE 移码标记 `!` 的密码子，保证长度是 3 的倍数。"""
+    records = read_fasta(inp)
+    if not records:
+        sys.exit(f"[ERROR] 密码子比对为空：{inp}")
+    seqs = list(records.values())
+    length = len(seqs[0])
+    keep = [
+        i for i in range(0, length - 2, 3)
+        if not any("!" in seq[i:i + 3] for seq in seqs)
+    ]
+    if not keep:
+        sys.exit(f"[ERROR] 密码子比对全部被移码标记污染：{inp}")
+    cleaned = {
+        name: "".join(seq[i:i + 3] for i in keep)
+        for name, seq in records.items()
+    }
+    write_fasta(cleaned, out)
+
+
 def build_tree(
     trim: Path, prefix: Path, threads: int, iqtree_args: str
 ) -> Path:
@@ -63,6 +103,7 @@ def build_tree(
         "-s", str(trim),
         "-T", str(threads),
         "--prefix", str(prefix),
+        "-redo",
     ] + shlex.split(iqtree_args)
     run(cmd, log_path=str(prefix) + ".iqtree.log")
     tree = Path(str(prefix) + ".treefile")
@@ -96,11 +137,19 @@ def main() -> None:
     if args.codon_only:
         codon_aln = outdir / f"{args.segment}.codon.aln.fasta"
         codon_trim = outdir / f"{args.segment}.codon.trim.fasta"
-        mafft_align(mafft, fasta, codon_aln, args.threads,
-                    args.mafft_args, codon=True)
-        trimal_align(codon_aln, codon_trim)
+        macse = shutil.which("macse")
+        if not macse:
+            sys.exit(
+                "[ERROR] 找不到 macse。密码子比对需要 MACSE；"
+                "请安装 bioconda 的 macse 包。"
+            )
+        raw_nt = outdir / f"{args.segment}.codon.macse.fasta"
+        raw_aa = outdir / f"{args.segment}.codon.macse.aa.fasta"
+        macse_codon_align(macse, fasta, raw_nt, raw_aa)
+        clean_codon_alignment(raw_nt, codon_aln)
+        shutil.copy(codon_aln, codon_trim)
         print(f"codon alignment: {codon_aln}")
-        print(f"codon trimmed:   {codon_trim}")
+        print(f"codon cleaned:   {codon_trim}")
         return
 
     mafft_align(mafft, fasta, aln, args.threads, args.mafft_args, codon=False)

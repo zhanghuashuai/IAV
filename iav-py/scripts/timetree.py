@@ -53,8 +53,16 @@ def main() -> None:
     treetime = require_tool("treetime")
     outdir = ensure_dir(args.outdir)
 
+    metadata = Path(args.metadata)
+    if not metadata.is_file():
+        sys.exit(
+            f"[ERROR] 找不到 metadata：{metadata}\n"
+            "TreeTime 需要 name/date 两列；请准备 "
+            "data/metadata/metadata.tsv（或修改 phylogeny.metadata）。"
+        )
+
     dates = outdir / "dates.tsv"
-    build_dates(Path(args.metadata), args.name_col, args.date_col, dates)
+    build_dates(metadata, args.name_col, args.date_col, dates)
 
     cmd = [
         treetime,

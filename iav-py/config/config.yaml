@@ -60,8 +60,8 @@ phylogeny:
   threads: 8
 
 selection:
-  # 密码子比对由 `snakemake results/phylo/HA.codon.trim.fasta` 生成
-  codon_alignment: results/phylo/HA.codon.trim.fasta
+  # 密码子比对由 `snakemake results/phylo/codon/HA.codon.trim.fasta` 生成
+  codon_alignment: results/phylo/codon/HA.codon.trim.fasta
   tree: results/phylo/HA.treefile
 
 reassortment:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from Bio import Phylo
 from Bio.Phylo.PAML import codeml
 from scipy.stats import chi2
 
-from utils import ensure_dir, require_tool, setup_logging, write_tsv
+from utils import ensure_dir, setup_logging, write_tsv
 
 
 def model_result(results: dict, model: int) -> dict:
@@ -84,6 +85,43 @@ def parse_beb(rst_path: Path) -> list[dict]:
     return rows
 
 
+def parse_mlc_lnl(path: Path) -> dict[int, float]:
+    """从 codeml 的 mlc 中按顺序解析 lnL（NSsites=0,1,2,7,8）。"""
+    values: list[float] = []
+    if path.exists():
+        for line in path.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines():
+            match = re.match(
+                r"\s*lnL\(.*\):\s*(-?\d+(?:\.\d+)?)", line
+            )
+            if match:
+                values.append(float(match.group(1)))
+    return dict(zip([0, 1, 2, 7, 8], values))
+
+
+def write_not_evaluable(outdir: Path, prefix: str, reason: str) -> None:
+    write_tsv(
+        [
+            {
+                "segment": prefix,
+                "status": "not_evaluable",
+                "reason": reason,
+                "comparison": "",
+                "null_model": "",
+                "alt_model": "",
+                "lnL_null": "",
+                "lnL_alt": "",
+                "LRT": "",
+                "df": "",
+                "p_value": "",
+                "omega_alt": "",
+            }
+        ],
+        outdir / f"{prefix}.selection.tsv",
+    )
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--aln", required=True, help="密码子比对 FASTA")
@@ -93,7 +131,10 @@ def main() -> None:
     args = p.parse_args()
 
     setup_logging()
-    require_tool("codeml")
+    outdir = ensure_dir(args.outdir)
+    if shutil.which("codeml") is None:
+        write_not_evaluable(outdir, args.prefix, "找不到 codeml")
+        return
 
     aln = Path(args.aln)
     tree = Path(args.tree)
@@ -102,8 +143,8 @@ def main() -> None:
     if not tree.exists():
         sys.exit(f"[ERROR] 找不到树：{tree}")
 
-    outdir = ensure_dir(args.outdir)
-    workdir = ensure_dir(outdir / "paml")
+    # 每个节段独立 PAML 工作目录，避免并行任务互相覆盖
+    workdir = ensure_dir(outdir / "paml" / args.prefix)
     mlc = workdir / "mlc"
     rst = workdir / "rst"
 
@@ -130,9 +171,23 @@ def main() -> None:
         cleandata=1,
         RateAncestor=1,
     )
-    results = cml.run(verbose=True)
-    if not results:
-        sys.exit("[ERROR] codeml 没有返回可解析结果，请检查 paml/ 目录。")
+    parsed_from_mlc = False
+    lnl_by_model: dict[int, float] = {}
+    try:
+        results = cml.run(verbose=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[WARN] codeml returned non-zero: {exc}")
+        lnl_by_model = parse_mlc_lnl(mlc)
+        if not lnl_by_model:
+            write_not_evaluable(
+                outdir, args.prefix, f"codeml 运行失败：{exc}"
+            )
+            return
+        results = {}
+        parsed_from_mlc = True
+    if not results and not parsed_from_mlc:
+        write_not_evaluable(outdir, args.prefix, "codeml 没有返回可解析结果")
+        return
 
     comparisons = [
         ("M1a_vs_M2a", 1, 2),
@@ -140,14 +195,28 @@ def main() -> None:
     ]
     rows = []
     for name, null_model, alt_model in comparisons:
-        lnl_null = get_lnl(results, null_model)
-        lnl_alt = get_lnl(results, alt_model)
+        lnl_null = (
+            get_lnl(results, null_model)
+            if results
+            else lnl_by_model.get(null_model)
+        )
+        lnl_alt = (
+            get_lnl(results, alt_model)
+            if results
+            else lnl_by_model.get(alt_model)
+        )
         if lnl_null is None or lnl_alt is None:
             continue
         lrt = max(0.0, 2.0 * (lnl_alt - lnl_null))
         p_value = float(chi2.sf(lrt, df=2))
         rows.append(
             {
+                "segment": args.prefix,
+                "status": "ok",
+                "reason": (
+                    "codeml 非零退出，已从 mlc 解析"
+                    if parsed_from_mlc else ""
+                ),
                 "comparison": name,
                 "null_model": null_model,
                 "alt_model": alt_model,
@@ -158,13 +227,17 @@ def main() -> None:
                 "p_value": f"{p_value:.4g}",
                 "omega_alt": (
                     f"{get_omega(results, alt_model):.3f}"
-                    if get_omega(results, alt_model) is not None else ""
+                    if results and get_omega(results, alt_model) is not None
+                    else ""
                 ),
             }
         )
 
     if not rows:
-        sys.exit("[ERROR] 未能提取 M1a/M2a/M7/M8 的 lnL，请检查 PAML 输出。")
+        write_not_evaluable(
+            outdir, args.prefix, "未能提取 M1a/M2a/M7/M8 的 lnL"
+        )
+        return
 
     write_tsv(rows, outdir / f"{args.prefix}.selection.tsv")
 
