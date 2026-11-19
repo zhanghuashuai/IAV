@@ -1,0 +1,9 @@
+segment	tree	exists	n_taxa	n_shared_taxa	n_clades
+PB2	claude/reassort_test/trees/PB2.treefile	yes	4	4	2
+PB1	claude/reassort_test/trees/PB1.treefile	yes	4	4	2
+PA	claude/reassort_test/trees/PA.treefile	yes	4	4	2
+HA	claude/reassort_test/trees/HA.treefile	yes	4	4	2
+NP	claude/reassort_test/trees/NP.treefile	yes	4	4	2
+NA	claude/reassort_test/trees/NA.treefile	yes	4	4	2
+MP	claude/reassort_test/trees/MP.treefile	yes	4	4	2
+NS	claude/reassort_test/trees/NS.treefile	yes	4	4	2

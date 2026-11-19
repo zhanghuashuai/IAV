@@ -1,0 +1,22 @@
+status	reason	segment_1	segment_2	clade_jaccard_distance	shared_taxa
+ok		PB2	PA	1.0000	4
+ok		PB2	HA	1.0000	4
+ok		PB2	NP	1.0000	4
+ok		PB2	NA	1.0000	4
+ok		PB2	NS	1.0000	4
+ok		PB1	PA	1.0000	4
+ok		PB1	HA	1.0000	4
+ok		PB1	NP	1.0000	4
+ok		PB1	NA	1.0000	4
+ok		PB1	NS	1.0000	4
+ok		PA	NP	1.0000	4
+ok		PA	NA	1.0000	4
+ok		PA	MP	1.0000	4
+ok		PA	NS	1.0000	4
+ok		HA	NP	1.0000	4
+ok		HA	NA	1.0000	4
+ok		HA	MP	1.0000	4
+ok		HA	NS	1.0000	4
+ok		NP	MP	1.0000	4
+ok		NA	MP	1.0000	4
+ok		MP	NS	1.0000	4

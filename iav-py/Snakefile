@@ -17,9 +17,50 @@
 
 configfile: "config/config.yaml"
 
+from pathlib import Path
+
 SAMPLES = list(config["samples"].keys())
 SEGMENTS = config["reference"]["segments"]
 PHYLO_SEG = config["phylogeny"]["segment"]
+
+
+def phylo_user_fasta(segment: str) -> str:
+    """优先使用配置/约定的用户 FASTA；找不到时返回约定路径（允许不存在）。"""
+    configured = config["phylogeny"].get("input_fasta", "")
+    if configured:
+        path = Path(configured)
+        if path.exists():
+            stem = path.stem.upper()
+            if segment.upper() in stem or not any(
+                seg in stem for seg in SEGMENTS
+            ):
+                return str(path)
+    for ext in ("fasta", "fa", "fas", "fna"):
+        candidate = Path(f"data/phylo/{segment}.{ext}")
+        if candidate.exists():
+            return str(candidate)
+    return f"data/phylo/{segment}.fasta"
+
+
+def phylo_dataset_reference(wildcards) -> list[str] | str:
+    """需要时自动加入 Nextclade 数据集参考序列（外群）。"""
+    if not config["phylogeny"].get("use_nextclade_reference", True):
+        return []
+    return (
+        f"results/nextclade_datasets/{wildcards.segment}/reference.fasta"
+    )
+
+
+def reassortment_tree_inputs() -> list[str]:
+    """按 build_trees 配置决定是否在重配前自动建树。"""
+    mode = config["reassortment"].get("build_trees", "auto")
+    trees = list(config["reassortment"]["trees"].values())
+    if mode == "always":
+        return trees
+    if mode == "never":
+        return []
+    min_taxa = config["reassortment"].get("min_shared_taxa", 4)
+    return trees if len(SAMPLES) >= min_taxa else []
 
 
 rule all:
@@ -28,6 +69,7 @@ rule all:
         expand("results/nextclade/{sample}.tsv", sample=SAMPLES),
         expand("results/markers/{sample}.tsv", sample=SAMPLES),
         "reports/report.md",
+        "results/reassortment/status.tsv",
 
 
 rule qc:
@@ -131,6 +173,8 @@ rule report:
         consensus=expand("results/consensus/{sample}.fasta", sample=SAMPLES),
         nextclade=expand("results/nextclade/{sample}.tsv", sample=SAMPLES),
         markers=expand("results/markers/{sample}.tsv", sample=SAMPLES),
+        reassortment_status="results/reassortment/status.tsv",
+        reassortment_candidates="results/reassortment/candidates.tsv",
     params:
         results="results",
         figures="figures",
@@ -147,15 +191,50 @@ rule report:
 
 # ---------------- 可选：系统发育 ----------------
 
+rule phylo_dataset_ref:
+    output:
+        "results/nextclade_datasets/{segment}/reference.fasta",
+    params:
+        dataset=lambda w: config["typing"]["nextclade_datasets"][w.segment],
+    shell:
+        """
+        nextclade dataset get \
+          --name {params.dataset} \
+          --output-dir results/nextclade_datasets/{wildcards.segment}
+        """
+
+
+rule phylo_input:
+    input:
+        dataset_ref=phylo_dataset_reference,
+    output:
+        "results/phylo/{segment}.input.fasta",
+    params:
+        user_fasta=lambda w: phylo_user_fasta(w.segment),
+        reference_fasta=config["phylogeny"].get("reference_fasta", ""),
+        min_sequences=config["phylogeny"].get("min_sequences", 3),
+    shell:
+        """
+        python scripts/phylo_input.py \
+          --segment {wildcards.segment} \
+          --user-fasta '{params.user_fasta}' \
+          --consensus-glob 'results/consensus/*.fasta' \
+          --reference-fasta '{params.reference_fasta}' \
+          --dataset-reference '{input.dataset_ref}' \
+          --min-sequences {params.min_sequences} \
+          --out {output}
+        """
+
+
 rule phylo:
     input:
-        fasta=config["phylogeny"]["input_fasta"],
+        fasta="results/phylo/{segment}.input.fasta",
     output:
-        aln=f"results/phylo/{PHYLO_SEG}.aln.fasta",
-        trim=f"results/phylo/{PHYLO_SEG}.trim.fasta",
-        tree=f"results/phylo/{PHYLO_SEG}.treefile",
+        aln="results/phylo/{segment}.aln.fasta",
+        trim="results/phylo/{segment}.trim.fasta",
+        tree="results/phylo/{segment}.treefile",
     params:
-        segment=PHYLO_SEG,
+        segment="{segment}",
         mafft_args=config["phylogeny"]["mafft_args"],
         iqtree_args=config["phylogeny"]["iqtree_args"],
     threads: config["phylogeny"]["threads"]
@@ -163,46 +242,46 @@ rule phylo:
         """
         python scripts/phylo.py \
           --fasta {input.fasta} \
-          --segment {params.segment} \
+          --segment {wildcards.segment} \
           --outdir results/phylo \
-          --mafft-args '{params.mafft_args}' \
-          --iqtree-args '{params.iqtree_args}' \
+          --mafft-args='{params.mafft_args}' \
+          --iqtree-args='{params.iqtree_args}' \
           --threads {threads}
         """
 
 
 rule codon_align:
     input:
-        fasta=config["phylogeny"]["input_fasta"],
+        fasta="results/phylo/{segment}.input.fasta",
     output:
-        aln=f"results/phylo/{PHYLO_SEG}.codon.aln.fasta",
-        trim=f"results/phylo/{PHYLO_SEG}.codon.trim.fasta",
+        aln="results/phylo/{segment}.codon.aln.fasta",
+        trim="results/phylo/{segment}.codon.trim.fasta",
     params:
-        segment=PHYLO_SEG,
+        segment="{segment}",
         mafft_args=config["phylogeny"]["mafft_args"],
     threads: config["phylogeny"]["threads"]
     shell:
         """
         python scripts/phylo.py \
           --fasta {input.fasta} \
-          --segment {params.segment} \
+          --segment {wildcards.segment} \
           --outdir results/phylo \
           --codon-only \
-          --mafft-args '{params.mafft_args}' \
+          --mafft-args='{params.mafft_args}' \
           --threads {threads}
         """
 
 
 rule timetree:
     input:
-        tree=f"results/phylo/{PHYLO_SEG}.treefile",
-        aln=f"results/phylo/{PHYLO_SEG}.trim.fasta",
+        tree="results/phylo/{segment}.treefile",
+        aln="results/phylo/{segment}.trim.fasta",
         metadata=config["phylogeny"]["metadata"],
     output:
-        tree=f"results/phylo/{PHYLO_SEG}.timetree.nwk",
-        clock=f"results/phylo/{PHYLO_SEG}.clock.tsv",
+        tree="results/phylo/{segment}.timetree.nwk",
+        clock="results/phylo/{segment}.clock.tsv",
     params:
-        prefix=PHYLO_SEG,
+        prefix="{segment}",
         treetime_args=config["phylogeny"]["treetime_args"],
     shell:
         """
@@ -214,7 +293,7 @@ rule timetree:
           --prefix {params.prefix} \
           --out-tree {output.tree} \
           --out-clock {output.clock} \
-          --treetime-args '{params.treetime_args}'
+          --treetime-args='{params.treetime_args}'
         """
 
 
@@ -238,32 +317,36 @@ rule selection:
 
 rule reassortment:
     input:
-        trees=list(config["reassortment"]["trees"].values()),
+        trees=reassortment_tree_inputs(),
     output:
         matrix="results/reassortment/rf_matrix.tsv",
         candidates="results/reassortment/candidates.tsv",
+        status="results/reassortment/status.tsv",
+        summary="results/reassortment/taxa_summary.tsv",
     params:
         tree_map=",".join(
             f"{k}={v}"
             for k, v in config["reassortment"]["trees"].items()
         ),
         threshold=config["reassortment"]["distance_threshold"],
+        min_shared_taxa=config["reassortment"].get("min_shared_taxa", 4),
     shell:
         """
         python scripts/reassortment.py \
           --tree-map '{params.tree_map}' \
           --outdir results/reassortment \
-          --threshold {params.threshold}
+          --threshold {params.threshold} \
+          --min-shared-taxa {params.min_shared_taxa}
         """
 
 
 rule plot_tree:
     input:
-        tree=f"results/phylo/{PHYLO_SEG}.treefile",
+        tree="results/phylo/{segment}.treefile",
     output:
-        fig=f"figures/{PHYLO_SEG}_tree.png",
+        fig="figures/{segment}_tree.png",
     params:
-        title=f"Influenza A {PHYLO_SEG}",
+        title=lambda w: f"Influenza A {w.segment}",
     shell:
         """
         python scripts/plot_tree.py \

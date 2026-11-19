@@ -87,12 +87,18 @@ def main() -> None:
     nextclade = read_pattern(results, "nextclade/*.tsv")
     markers = read_pattern(results, "markers/*.tsv")
     clock = read_pattern(results, "phylo/*.clock.tsv")
+    reassortment_status = read_pattern(results, "reassortment/status.tsv")
     candidates = read_pattern(results, "reassortment/candidates.tsv")
     selection = read_pattern(results, "selection/*.selection.tsv")
 
     found_markers = (
         markers[markers["found"] == "yes"]
         if "found" in markers.columns else pd.DataFrame()
+    )
+
+    reassortment_ok = not (
+        "status" in reassortment_status.columns
+        and (reassortment_status["status"].astype(str) == "not_evaluable").any()
     )
 
     nextclade_note = ""
@@ -144,7 +150,9 @@ def main() -> None:
         "",
         "## 5. 重配筛查",
         "",
-        df_to_md(candidates),
+        df_to_md(reassortment_status),
+        "",
+        df_to_md(candidates) if reassortment_ok else "",
         "",
         "## 6. 选择压力",
         "",
